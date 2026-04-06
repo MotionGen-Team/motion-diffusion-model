@@ -12,7 +12,14 @@ def load_model_wo_clip(model, state_dict):
     del state_dict['embed_timestep.sequence_pos_encoder.pe']  # no need to load it (fixed), and causes size mismatch for older models
     missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
     assert len(unexpected_keys) == 0
-    assert all([k.startswith('clip_model.') or 'sequence_pos_encoder' in k for k in missing_keys])
+    allowed_missing_prefixes = (
+        'clip_model.',
+        'sequence_pos_encoder',
+        'embed_timestep.sequence_pos_encoder',
+        'temporal_tcn.',
+    )
+    unexpected_missing_keys = [k for k in missing_keys if not k.startswith(allowed_missing_prefixes)]
+    assert len(unexpected_missing_keys) == 0, f'Unexpected missing keys: {unexpected_missing_keys}'
 
 
 def create_model_and_diffusion(args, data):
@@ -67,6 +74,7 @@ def get_model_args(args, data):
             'text_encoder_type': args.text_encoder_type,
             'pos_embed_max_len': args.pos_embed_max_len, 'mask_frames': args.mask_frames,
             'pred_len': args.pred_len, 'context_len': args.context_len, 'emb_policy': emb_policy,
+            'use_temporal_tcn': False,
             'all_goal_joint_names': all_goal_joint_names, 'multi_target_cond': multi_target_cond, 'multi_encoder_type': multi_encoder_type, 'target_enc_layers': target_enc_layers,
             }
 

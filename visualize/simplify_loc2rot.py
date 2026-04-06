@@ -16,7 +16,7 @@ class joints2smpl:
         self.device = torch.device("cuda:" + str(device_id) if cuda else "cpu")
         # self.device = torch.device("cpu")
         self.batch_size = num_frames
-        self.num_joints = 22  # for HumanML3D
+        self.num_joints = 22  # for humanml
         self.joint_category = "AMASS"
         self.num_smplify_iters = 150
         self.fix_foot = False

@@ -169,7 +169,7 @@ def add_training_options(parser):
     group.add_argument("--num_steps", default=600_000, type=int,
                        help="Training will stop after the specified number of steps.")
     group.add_argument("--num_frames", default=60, type=int,
-                       help="Limit for the maximal number of frames. In HumanML3D and KIT this field is ignored.")
+                       help="Limit for the maximal number of frames. In humanml and KIT this field is ignored.")
     group.add_argument("--resume_checkpoint", default="", type=str,
                        help="If not empty, will start from the specified checkpoint (path to model###.pt file).")
     
@@ -216,7 +216,7 @@ def add_generate_options(parser):
     group = parser.add_argument_group('generate')
     group.add_argument("--motion_length", default=6.0, type=float,
                        help="The length of the sampled motion [in seconds]. "
-                            "Maximum is 9.8 for HumanML3D (text-to-motion), and 2.0 for HumanAct12 (action-to-motion)")
+                            "Maximum is 9.8 for humanml (text-to-motion), and 2.0 for HumanAct12 (action-to-motion)")
     group.add_argument("--input_text", default='', type=str,
                        help="Path to a text file lists text prompts to be synthesized. If empty, will take text prompts from dataset.")
     group.add_argument("--dynamic_text_path", default='', type=str,
@@ -253,8 +253,9 @@ def add_evaluation_options(parser):
     group = parser.add_argument_group('eval')
     group.add_argument("--model_path", required=True, type=str,
                        help="Path to model####.pt file to be sampled.")
-    group.add_argument("--eval_mode", default='wo_mm', choices=['wo_mm', 'mm_short', 'debug', 'full'], type=str,
-                       help="wo_mm (t2m only) - 20 repetitions without multi-modality metric; "
+    group.add_argument("--eval_mode", default='wo_mm', choices=['quick_debug', 'wo_mm', 'mm_short', 'debug', 'full'], type=str,
+                       help="quick_debug - minimal run for verifying the evaluation pipeline and resume logic; "
+                            "wo_mm (t2m only) - 20 repetitions without multi-modality metric; "
                             "mm_short (t2m only) - 5 repetitions with multi-modality metric; "
                             "debug - short run, less accurate results."
                             "full (a2m only) - 20 repetitions.")

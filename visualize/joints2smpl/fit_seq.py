@@ -1,4 +1,10 @@
-from __future__ import print_function, division
+import sys, os
+
+ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+SMPLIFYX_PATH = os.path.join(ROOT_DIR, 'smplify-x')
+
+# 加入 sys.path
+sys.path.append(SMPLIFYX_PATH)
 import argparse
 import torch
 import os,sys

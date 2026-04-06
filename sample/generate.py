@@ -24,18 +24,38 @@ def main(args=None):
     if args is None:
         # args is None unless this method is called from another function (e.g. during training)
         args = generate_args()
+        #generate_args()：读取命令行参数（模型路径、文本等）
+        #fixseed：固定随机种子（保证结果可复现）
     fixseed(args.seed)
     out_path = args.output_dir
+    '''控制生成的动作：
+
+    关节数（骨架结构）
+    最大帧数
+    帧率（FPS）
+    最终生成长度 
+    本质：
+    控制生成的时间序列长度'''
     n_joints = 22 if args.dataset == 'humanml' else 21
     name = os.path.basename(os.path.dirname(args.model_path))
     niter = os.path.basename(args.model_path).replace('model', '').replace('.pt', '')
     max_frames = 196 if args.dataset in ['kit', 'humanml'] else 60
     fps = 12.5 if args.dataset == 'kit' else 20
     n_frames = min(max_frames, int(args.motion_length*fps))
+    '''
+    | 输入方式              | 说明           |
+| ----------------- | ------------ |
+| text_prompt       | 单条文本         |
+| input_text        | txt文件        |
+| dynamic_text_path | 每一帧不同文本（很高级） |
+| action_name       | 动作标签         |
+
+    '''
     is_using_data = not any([args.input_text, args.text_prompt, args.action_file, args.action_name])
     if args.context_len > 0:
         is_using_data = True  # For prefix completion, we need to sample a prefix
     dist_util.setup_dist(args.device)
+    #构建输出路径
     if out_path == '':
         out_path = os.path.join(os.path.dirname(args.model_path),
                                 'samples_{}_{}_seed{}'.format(name, niter, args.seed))
@@ -76,34 +96,60 @@ def main(args=None):
     args.batch_size = args.num_samples  # Sampling a single batch from the testset, with exactly args.num_samples
 
     print('Loading dataset...')
+    #加载数据集
+    '''  注意：
+
+    即使是生成，也会加载 dataset，因为：
+
+    需要 normalization / skeleton / tokenizer 等'''
     data = load_dataset(args, max_frames, n_frames)
     total_num_samples = args.num_samples * args.num_repetitions
 
     print("Creating model and diffusion...")
-    model, diffusion = create_model_and_diffusion(args, data)
+    #创建模型 + diffusion
+    ''' 这是核心：
 
+    model：Transformer / UNet（生成器）
+    diffusion：扩散过程（采样逻辑）'''
+    model, diffusion = create_model_and_diffusion(args, data)
+    #选择采样方式默认：DDPM sampling
     sample_fn = diffusion.p_sample_loop
+    #自回归生成（一步步生成）
     if args.autoregressive:
         sample_cls = AutoRegressiveSampler(args, sample_fn, n_frames)
         sample_fn = sample_cls.sample
 
     print(f"Loading checkpoints from [{args.model_path}]...")
+    #加载模型权重,就是 .pt checkpoint
     load_saved_model(model, args.model_path, use_avg=args.use_ema)
 
     if args.guidance_param != 1:
+        #CFG（Classifier-Free Guidance）,x = x_cond + scale * (x_cond - x_uncond),scale越大 → 越“听话”
+        ''' | 模式     | 学的东西     |
+            | ------ | -------- |
+            | cond   | “怎么符合文本” |
+            | uncond | “自然动作分布” |
+            eps_cond - eps_uncond是“文本带来的偏移量”，+ scale *相当于：“把文本影响放大”，CFG = 用无条件当 baseline，用条件做方向修正
+        '''
         model = ClassifierFreeSampleModel(model)   # wrapping model with the classifier-free sampler
     model.to(dist_util.dev())
     model.eval()  # disable random masking
 
     motion_shape = (args.batch_size, model.njoints, model.nfeats, n_frames)
-
+    #准备输入（model_kwargs）
+    #用数据集
     if is_using_data:
         iterator = iter(data)
         input_motion, model_kwargs = next(iterator)
         input_motion = input_motion.to(dist_util.dev())
         if texts is not None:
             model_kwargs['y']['text'] = texts
+    #用文本生成
     else:
+        '''这一步做：
+        padding
+        mask
+        text embedding '''
         collate_args = [{'inp': torch.zeros(n_frames), 'tokens': None, 'lengths': n_frames}] * args.num_samples
         is_t2m = any([args.input_text, args.text_prompt])
         if is_t2m:
@@ -115,7 +161,7 @@ def main(args=None):
             collate_args = [dict(arg, action=one_action, action_text=one_action_text) for
                             arg, one_action, one_action_text in zip(collate_args, action, action_text)]
         _, model_kwargs = collate(collate_args)
-
+    ##文本编码优化,提前encode，避免重复计算
     model_kwargs['y'] = {key: val.to(dist_util.dev()) if torch.is_tensor(val) else val for key, val in model_kwargs['y'].items()}
     init_image = None    
     
@@ -140,10 +186,10 @@ def main(args=None):
                                                model_kwargs['y']['text_embed'][1].unsqueeze(0).repeat(args.num_samples, 1, 1))
         else:
             raise NotImplementedError('DiP model only supports BERT text encoder at the moment. If you implement this, please send a PR!')
-    
+    #进入采样循环（最核心）,每个prompt生成多个样本
     for rep_i in range(args.num_repetitions):
         print(f'### Sampling [repetitions #{rep_i}]')
-
+        #diffusion采样,noise → 一步步去噪 → motion
         sample = sample_fn(
             model,
             motion_shape,
@@ -157,15 +203,18 @@ def main(args=None):
             const_noise=False,
         )
 
-        # Recover XYZ *positions* from HumanML3D vector representation
+        # Recover XYZ *positions* from humanml vector representation,数据后处理（非常重要）
         if model.data_rep == 'hml_vec':
             n_joints = 22 if sample.shape[1] == 263 else 21
             sample = data.dataset.t2m_dataset.inv_transform(sample.cpu().permute(0, 2, 3, 1)).float()
+            print("sample stats:", sample.min().item(), sample.max().item(), sample.mean().item())
+            #表示转换,模型内部表示 → 真实关节坐标
             sample = recover_from_ric(sample, n_joints)
             sample = sample.view(-1, *sample.shape[2:]).permute(0, 2, 3, 1)
 
         rot2xyz_pose_rep = 'xyz' if model.data_rep in ['xyz', 'hml_vec'] else model.data_rep
         rot2xyz_mask = None if rot2xyz_pose_rep == 'xyz' else model_kwargs['y']['mask'].reshape(args.batch_size, n_frames).bool()
+        #转成 xyz,最终得到：[batch, joints, xyz, frames]
         sample = model.rot2xyz(x=sample, mask=rot2xyz_mask, pose_rep=rot2xyz_pose_rep, glob=True, translation=True,
                                jointstype='smpl', vertstrans=True, betas=None, beta=0, glob_rot=None,
                                get_rotations_back=False)
@@ -196,6 +245,7 @@ def main(args=None):
 
     npy_path = os.path.join(out_path, 'results.npy')
     print(f"saving results file to [{npy_path}]")
+    #保存数据
     np.save(npy_path,
             {'motion': all_motions, 'text': all_text, 'lengths': all_lengths,
              'num_samples': args.num_samples, 'num_repetitions': args.num_repetitions})
@@ -239,9 +289,12 @@ def main(args=None):
             save_file = sample_file_template.format(sample_i, rep_i)
             animation_save_path = os.path.join(out_path, save_file)
             gt_frames = np.arange(args.context_len) if args.context_len > 0 and not args.autoregressive else []
+            #每个样本生成一个视频
             animations[sample_i, rep_i] = plot_3d_motion(animation_save_path, 
                                                          skeleton, motion, dataset=args.dataset, title=caption, 
                                                          fps=fps, gt_frames=gt_frames)
+            print("motion shape:", motion.shape)
+            print("motion first frame:", motion[0][:10])
             rep_files.append(animation_save_path)
 
     save_multiple_samples(out_path, {'all': all_file_template}, animations, fps, max(list(all_lengths) + [n_frames]))
@@ -251,7 +304,7 @@ def main(args=None):
 
     return out_path
 
-
+#每3个样本拼一个视频
 def save_multiple_samples(out_path, file_templates,  animations, fps, max_frames, no_dir=False):
     
     num_samples_in_out_file = 3
@@ -279,7 +332,7 @@ def save_multiple_samples(out_path, file_templates,  animations, fps, max_frames
             clip.close()
         clips.close()  # important
  
-
+#只是控制文件名格式
 def construct_template_variables(unconstrained):
     row_file_template = 'sample{:02d}.mp4'
     all_file_template = 'samples_{:02d}_to_{:02d}.mp4'

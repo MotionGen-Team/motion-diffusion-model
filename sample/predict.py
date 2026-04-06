@@ -124,7 +124,7 @@ class Predictor(BasePredictor):
             const_noise=False,
         )
 
-        # Recover XYZ *positions* from HumanML3D vector representation
+        # Recover XYZ *positions* from humanml vector representation
         if self.model.data_rep == 'hml_vec':
             n_joints = 22 if sample.shape[1] == 263 else 21
             sample = self.data.dataset.t2m_dataset.inv_transform(sample.cpu().permute(0, 2, 3, 1)).float()

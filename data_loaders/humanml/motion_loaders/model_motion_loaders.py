@@ -64,8 +64,10 @@ def get_motion_loader(opt_path, batch_size, ground_truth_dataset, mm_num_samples
 
     mm_dataset = MMGeneratedDataset(opt, dataset, w_vectorizer)
 
-    motion_loader = DataLoader(dataset, batch_size=batch_size, collate_fn=collate_fn, drop_last=True, num_workers=4)
-    mm_motion_loader = DataLoader(mm_dataset, batch_size=1, num_workers=1)
+    # motion_loader = DataLoader(dataset, batch_size=batch_size, collate_fn=collate_fn, drop_last=True, num_workers=4)  # G
+    motion_loader = DataLoader(dataset, batch_size=batch_size, collate_fn=collate_fn, drop_last=True, num_workers=0)  # G
+    # mm_motion_loader = DataLoader(mm_dataset, batch_size=1, num_workers=1)  # G
+    mm_motion_loader = DataLoader(mm_dataset, batch_size=1, num_workers=0)  # G
 
     print('Generated Dataset Loading Completed!!!')
 
@@ -83,8 +85,10 @@ def get_mdm_loader(args, model, diffusion, batch_size, ground_truth_loader, mm_n
     mm_dataset = MMGeneratedDataset(opt, dataset, ground_truth_loader.dataset.w_vectorizer)
 
     # NOTE: bs must not be changed! this will cause a bug in R precision calc!
-    motion_loader = DataLoader(dataset, batch_size=batch_size, collate_fn=collate_fn, drop_last=True, num_workers=4)
-    mm_motion_loader = DataLoader(mm_dataset, batch_size=1, num_workers=1)
+    # motion_loader = DataLoader(dataset, batch_size=batch_size, collate_fn=collate_fn, drop_last=True, num_workers=4)  # G
+    motion_loader = DataLoader(dataset, batch_size=batch_size, collate_fn=collate_fn, drop_last=True, num_workers=0)  # G
+    # mm_motion_loader = DataLoader(mm_dataset, batch_size=1, num_workers=1)  # G
+    mm_motion_loader = DataLoader(mm_dataset, batch_size=1, num_workers=0)  # G
 
     print('Generated Dataset Loading Completed!!!')
 

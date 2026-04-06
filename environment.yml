@@ -6,7 +6,6 @@ channels:
   - defaults
 dependencies:
   - _libgcc_mutex=0.1=main
-  - _openmp_mutex=5.1=1_gnu
   - beautifulsoup4=4.11.1=pyha770c72_0
   - blas=1.0=mkl
   - brotlipy=0.7.0=py37h540881e_1004
@@ -45,12 +44,10 @@ dependencies:
   - lcms2=2.12=h3be6417_0
   - ld_impl_linux-64=2.38=h1181459_1
   - libffi=3.3=he6710b0_2
-  - libgcc-ng=11.2.0=h1234567_1
   - libgfortran-ng=11.2.0=h00389a5_1
   - libgfortran5=11.2.0=h1234567_1
   - libgomp=11.2.0=h1234567_1
   - libpng=1.6.37=hbc83047_0
-  - libstdcxx-ng=11.2.0=h1234567_1
   - libtiff=4.1.0=h2733197_1
   - libuuid=1.0.3=h7f8727e_2
   - libuv=1.40.0=h7b6447c_0

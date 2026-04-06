@@ -11,6 +11,7 @@ from textwrap import wrap
 from moviepy.editor import VideoClip
 from moviepy.video.io.bindings import mplfig_to_npimage
 
+
 def list_cut_average(ll, intervals):
     if intervals == 1:
         return ll
@@ -67,7 +68,7 @@ def plot_3d_motion(save_path, kinematic_tree, joints, title, dataset, figsize=(3
     elif dataset == 'humanml':
         data *= 1.3  # scale for visualization
     elif dataset in ['humanact12', 'uestc']:
-        data *= -1.5 # reverse axes, scale for visualization
+        data *= -1.5  # reverse axes, scale for visualization
 
     fig = plt.figure(figsize=figsize)
     plt.tight_layout()
@@ -83,7 +84,7 @@ def plot_3d_motion(save_path, kinematic_tree, joints, title, dataset, figsize=(3
         colors[1] = colors_blue[1]
     elif vis_mode == 'gt':
         colors = colors_blue
-    
+
     n_frames = data.shape[0]
     #     print(dataset.shape)
 
@@ -92,18 +93,18 @@ def plot_3d_motion(save_path, kinematic_tree, joints, title, dataset, figsize=(3
     trajec = data[:, 0, [0, 2]]  # memorize original x,z pelvis values
 
     # locate x,z pelvis values of ** each frame ** at zero
-    data[..., 0] -= data[:, 0:1, 0] 
+    data[..., 0] -= data[:, 0:1, 0]
     data[..., 2] -= data[:, 0:1, 2]
 
     #     print(trajec.shape)
 
     def update(index):
         # sometimes index is equal to n_frames/fps due to floating point issues. in such case, we duplicate the last frame
-        index = min(n_frames-1, int(index*fps))
+        index = min(n_frames - 1, int(index * fps))
         ax.clear()
         ax.view_init(elev=120, azim=-90)
         ax.dist = 7.5
-        
+
         # Dynamic title
         if title_per_frame:
             _title = title[index]
@@ -139,10 +140,9 @@ def plot_3d_motion(save_path, kinematic_tree, joints, title, dataset, figsize=(3
         ax.set_yticks([])
         ax.set_zticks([])
 
-
         return mplfig_to_npimage(fig)
 
     ani = VideoClip(update)
-    
+
     plt.close()
     return ani

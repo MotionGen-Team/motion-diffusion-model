@@ -204,8 +204,8 @@ There are two paths to get the data:
 ```shell
 cd ..
 git clone https://github.com/EricGuo5513/HumanML3D.git
-unzip ./HumanML3D/HumanML3D/texts.zip -d ./HumanML3D/HumanML3D/
-cp -r HumanML3D/HumanML3D motion-diffusion-model/dataset/HumanML3D
+unzip ./humanml/humanml/texts.zip -d ./humanml/humanml/
+cp -r humanml/humanml motion-diffusion-model/dataset/humanml
 cd motion-diffusion-model
 ```
 
@@ -216,7 +216,7 @@ cd motion-diffusion-model
 then copy the result dataset to our repository:
 
 ```shell
-cp -r ../HumanML3D/HumanML3D ./dataset/HumanML3D
+cp -r ../humanml/humanml ./dataset/humanml
 ```
 
 **KIT** - Download from [HumanML3D](https://github.com/EricGuo5513/HumanML3D.git) (no processing needed this time) and the place result in `./dataset/KIT-ML`

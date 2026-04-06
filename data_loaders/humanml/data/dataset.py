@@ -14,6 +14,27 @@ from data_loaders.humanml.utils.get_opt import get_opt
 
 # import spacy
 
+
+def _is_finite_motion(motion):
+    return np.isfinite(motion).all()
+
+
+def _filter_invalid_motion_entries(name_list, length_list, data_dict):
+    filtered_names = []
+    filtered_lengths = []
+    removed = 0
+    for name, length in zip(name_list, length_list):
+        motion = data_dict[name]['motion']
+        if _is_finite_motion(motion):
+            filtered_names.append(name)
+            filtered_lengths.append(length)
+        else:
+            removed += 1
+            data_dict.pop(name, None)
+    if removed > 0:
+        print(f'Filtered out {removed} motion entries containing NaN/Inf.')
+    return filtered_names, filtered_lengths, data_dict
+
 def collate_fn(batch):
     batch.sort(key=lambda x: x[3], reverse=True)
     return default_collate(batch)
@@ -41,6 +62,8 @@ class Text2MotionDataset(data.Dataset):
         for name in tqdm(id_list):
             try:
                 motion = np.load(pjoin(opt.motion_dir, name + '.npy'))
+                if not _is_finite_motion(motion):
+                    continue
                 if (len(motion)) < min_motion_len or (len(motion) >= 200):
                     continue
                 text_data = []
@@ -64,6 +87,8 @@ class Text2MotionDataset(data.Dataset):
                         else:
                             try:
                                 n_motion = motion[int(f_tag*20) : int(to_tag*20)]
+                                if not _is_finite_motion(n_motion):
+                                    continue
                                 if (len(n_motion)) < min_motion_len or (len(n_motion) >= 200):
                                     continue
                                 new_name = random.choice('ABCDEFGHIJKLMNOPQRSTUVW') + '_' + name
@@ -89,8 +114,8 @@ class Text2MotionDataset(data.Dataset):
                 # Some motion may not exist in KIT dataset
                 pass
 
-
         name_list, length_list = zip(*sorted(zip(new_name_list, length_list), key=lambda x: x[1]))
+        name_list, length_list, data_dict = _filter_invalid_motion_entries(list(name_list), list(length_list), data_dict)
 
         if opt.is_train:
             # root_rot_velocity (B, seq_len, 1)
@@ -233,12 +258,15 @@ class Text2MotionDatasetV2(data.Dataset):
             print(f'Loading motions from cache file [{cache_path}]...')
             _cache = np.load(cache_path, allow_pickle=True)[None][0]
             name_list, length_list, data_dict = _cache['name_list'], _cache['length_list'], _cache['data_dict']
+            name_list, length_list, data_dict = _filter_invalid_motion_entries(list(name_list), list(length_list), data_dict)
             # name_list = name_list[:15]; length_list = length_list[:15]
             # data_dict = {key: data_dict[key] for key in name_list}
         else:
             for name in tqdm(id_list):
                 try:
                     motion = np.load(pjoin(opt.motion_dir, name + '.npy'))
+                    if not _is_finite_motion(motion):
+                        continue
                     if (len(motion)) < min_motion_len or (len(motion) >= 200):
                         continue
                     text_data = []
@@ -262,6 +290,8 @@ class Text2MotionDatasetV2(data.Dataset):
                             else:
                                 try:
                                     n_motion = motion[int(f_tag*20) : int(to_tag*20)]
+                                    if not _is_finite_motion(n_motion):
+                                        continue
                                     if (len(n_motion)) < min_motion_len or (len(n_motion) >= 200):
                                         continue
                                     new_name = random.choice('ABCDEFGHIJKLMNOPQRSTUVW') + '_' + name
@@ -287,6 +317,7 @@ class Text2MotionDatasetV2(data.Dataset):
                     pass
 
             name_list, length_list = zip(*sorted(zip(new_name_list, length_list), key=lambda x: x[1]))
+            name_list, length_list, data_dict = _filter_invalid_motion_entries(list(name_list), list(length_list), data_dict)
             print(f'Saving motions to cache file [{cache_path}]...')
             np.save(cache_path, {
                 'name_list': name_list,
@@ -399,6 +430,8 @@ class Text2MotionDatasetBaseline(data.Dataset):
         for name in tqdm(id_list):
             try:
                 motion = np.load(pjoin(opt.motion_dir, name + '.npy'))
+                if not _is_finite_motion(motion):
+                    continue
                 if (len(motion)) < min_motion_len or (len(motion) >= 200):
                     continue
                 text_data = []
@@ -422,6 +455,8 @@ class Text2MotionDatasetBaseline(data.Dataset):
                         else:
                             try:
                                 n_motion = motion[int(f_tag*20) : int(to_tag*20)]
+                                if not _is_finite_motion(n_motion):
+                                    continue
                                 if (len(n_motion)) < min_motion_len or (len(n_motion) >= 200):
                                     continue
                                 new_name = random.choice('ABCDEFGHIJKLMNOPQRSTUVW') + '_' + name
@@ -447,6 +482,7 @@ class Text2MotionDatasetBaseline(data.Dataset):
                 pass
 
         name_list, length_list = zip(*sorted(zip(new_name_list, length_list), key=lambda x: x[1]))
+        name_list, length_list, data_dict = _filter_invalid_motion_entries(list(name_list), list(length_list), data_dict)
 
         self.mean = mean
         self.std = std

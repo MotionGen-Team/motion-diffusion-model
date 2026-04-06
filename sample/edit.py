@@ -115,7 +115,7 @@ def main():
         )
 
 
-        # Recover XYZ *positions* from HumanML3D vector representation
+        # Recover XYZ *positions* from humanml vector representation
         if model.data_rep == 'hml_vec':
             n_joints = 22 if sample.shape[1] == 263 else 21
             sample = data.dataset.t2m_dataset.inv_transform(sample.cpu().permute(0, 2, 3, 1)).float()
@@ -151,7 +151,7 @@ def main():
     print(f"saving visualizations to [{out_path}]...")
     skeleton = paramUtil.kit_kinematic_chain if args.dataset == 'kit' else paramUtil.t2m_kinematic_chain
 
-    # Recover XYZ *positions* from HumanML3D vector representation
+    # Recover XYZ *positions* from humanml vector representation
     if model.data_rep == 'hml_vec':
         input_motions = data.dataset.t2m_dataset.inv_transform(input_motions.cpu().permute(0, 2, 3, 1)).float()
         input_motions = recover_from_ric(input_motions, n_joints)

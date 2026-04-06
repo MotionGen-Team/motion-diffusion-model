@@ -1,6 +1,8 @@
 from utils.parser_util import evaluation_parser
 from utils.fixseed import fixseed
 from datetime import datetime
+import json
+import os
 from data_loaders.humanml.motion_loaders.model_motion_loaders import get_mdm_loader  # get_motion_loader
 from data_loaders.humanml.utils.metrics import *
 from data_loaders.humanml.networks.evaluator_wrapper import EvaluatorMDMWrapper
@@ -16,6 +18,66 @@ from utils.sampler_util import ClassifierFreeSampleModel
 from train.train_platforms import ClearmlPlatform, TensorboardPlatform, NoPlatform, WandBPlatform  # required for the eval operation
 
 torch.multiprocessing.set_sharing_strategy('file_system')
+
+
+def _to_builtin(value):  # G
+    if isinstance(value, OrderedDict):  # G
+        return {k: _to_builtin(v) for k, v in value.items()}  # G
+    if isinstance(value, dict):  # G
+        return {k: _to_builtin(v) for k, v in value.items()}  # G
+    if isinstance(value, list):  # G
+        return [_to_builtin(v) for v in value]  # G
+    if isinstance(value, tuple):  # G
+        return [_to_builtin(v) for v in value]  # G
+    if isinstance(value, np.ndarray):  # G
+        return value.tolist()  # G
+    if isinstance(value, (np.float32, np.float64)):  # G
+        return float(value)  # G
+    if isinstance(value, (np.int32, np.int64)):  # G
+        return int(value)  # G
+    return value  # G
+
+
+def _get_progress_paths(log_file):  # G
+    progress_base = os.path.splitext(log_file)[0]  # G
+    return progress_base + '.progress.json', progress_base + '.progress.pt'  # G
+
+
+def _init_all_metrics():  # G
+    return OrderedDict({'Matching Score': OrderedDict({}),  # G
+                        'R_precision': OrderedDict({}),  # G
+                        'FID': OrderedDict({}),  # G
+                        'Diversity': OrderedDict({}),  # G
+                        'MultiModality': OrderedDict({})})  # G
+
+
+def _save_progress(log_file, all_metrics, completed_replications, replication_times, mean_dict=None):  # G
+    progress_json_path, progress_pt_path = _get_progress_paths(log_file)  # G
+    payload = {  # G
+        'completed_replications': completed_replications,  # G
+        'replication_times': replication_times,  # G
+        'last_update': datetime.now().isoformat(),  # G
+        'all_metrics': all_metrics,  # G
+        'mean_dict': mean_dict,  # G
+    }  # G
+    torch.save(payload, progress_pt_path)  # G
+    with open(progress_json_path, 'w', encoding='utf-8') as fw:  # G
+        json.dump(_to_builtin(payload), fw, ensure_ascii=False, indent=2)  # G
+
+
+def _load_progress(log_file, replication_times):  # G
+    _, progress_pt_path = _get_progress_paths(log_file)  # G
+    if not os.path.exists(progress_pt_path):  # G
+        return _init_all_metrics(), 0  # G
+
+    payload = torch.load(progress_pt_path, map_location='cpu')  # G
+    saved_replication_times = payload.get('replication_times', replication_times)  # G
+    if saved_replication_times != replication_times:  # G
+        raise ValueError(f'Progress file replication_times={saved_replication_times} does not match current run {replication_times}.')  # G
+
+    all_metrics = payload.get('all_metrics', _init_all_metrics())  # G
+    completed_replications = payload.get('completed_replications', 0)  # G
+    return all_metrics, completed_replications  # G
 
 def evaluate_matching_score(eval_wrapper, motion_loaders, file):
     match_score_dict = OrderedDict({})
@@ -137,14 +199,25 @@ def get_metric_statistics(values, replication_times):
 
 
 def evaluation(eval_wrapper, gt_loader, eval_motion_loaders, log_file, replication_times, 
-               diversity_times, mm_num_times, run_mm=False, eval_platform=None):
-    with open(log_file, 'w') as f:
-        all_metrics = OrderedDict({'Matching Score': OrderedDict({}),
-                                   'R_precision': OrderedDict({}),
-                                   'FID': OrderedDict({}),
-                                   'Diversity': OrderedDict({}),
-                                   'MultiModality': OrderedDict({})})
-        for replication in range(replication_times):
+               diversity_times, mm_num_times, run_mm=False, eval_platform=None, metrics_to_run=None):
+    if metrics_to_run is None:  # G
+        metrics_to_run = {'matching', 'fid', 'diversity', 'multimodality'}  # G
+
+    # with open(log_file, 'w') as f:  # G
+    all_metrics, completed_replications = _load_progress(log_file, replication_times)  # G
+    log_mode = 'a' if completed_replications > 0 and os.path.exists(log_file) else 'w'  # G
+    with open(log_file, log_mode, encoding='utf-8') as f:  # G
+        # all_metrics = OrderedDict({'Matching Score': OrderedDict({}),  # G
+        #                            'R_precision': OrderedDict({}),  # G
+        #                            'FID': OrderedDict({}),  # G
+        #                            'Diversity': OrderedDict({}),  # G
+        #                            'MultiModality': OrderedDict({})})  # G
+        if completed_replications > 0:  # G
+            resume_line = f'========== Resuming from replication {completed_replications}/{replication_times} =========='  # G
+            print(resume_line)  # G
+            print(resume_line, file=f, flush=True)  # G
+
+        for replication in range(completed_replications, replication_times):  # G
             motion_loaders = {}
             mm_motion_loaders = {}
             motion_loaders['ground truth'] = gt_loader
@@ -157,17 +230,23 @@ def evaluation(eval_wrapper, gt_loader, eval_motion_loaders, log_file, replicati
             print(f'==================== Replication {replication} ====================', file=f, flush=True)
             print(f'Time: {datetime.now()}')
             print(f'Time: {datetime.now()}', file=f, flush=True)
-            mat_score_dict, R_precision_dict, acti_dict = evaluate_matching_score(eval_wrapper, motion_loaders, f)
+            mat_score_dict, R_precision_dict, acti_dict = OrderedDict({}), OrderedDict({}), OrderedDict({})  # G
+            if 'matching' in metrics_to_run:  # G
+                mat_score_dict, R_precision_dict, acti_dict = evaluate_matching_score(eval_wrapper, motion_loaders, f)  # G
 
-            print(f'Time: {datetime.now()}')
-            print(f'Time: {datetime.now()}', file=f, flush=True)
-            fid_score_dict = evaluate_fid(eval_wrapper, gt_loader, acti_dict, f)
+            fid_score_dict = OrderedDict({})  # G
+            if 'fid' in metrics_to_run:  # G
+                print(f'Time: {datetime.now()}')  # G
+                print(f'Time: {datetime.now()}', file=f, flush=True)  # G
+                fid_score_dict = evaluate_fid(eval_wrapper, gt_loader, acti_dict, f)  # G
 
-            print(f'Time: {datetime.now()}')
-            print(f'Time: {datetime.now()}', file=f, flush=True)
-            div_score_dict = evaluate_diversity(acti_dict, f, diversity_times)
+            div_score_dict = OrderedDict({})  # G
+            if 'diversity' in metrics_to_run:  # G
+                print(f'Time: {datetime.now()}')  # G
+                print(f'Time: {datetime.now()}', file=f, flush=True)  # G
+                div_score_dict = evaluate_diversity(acti_dict, f, diversity_times)  # G
 
-            if run_mm:
+            if run_mm and 'multimodality' in metrics_to_run:
                 print(f'Time: {datetime.now()}')
                 print(f'Time: {datetime.now()}', file=f, flush=True)
                 mm_score_dict = evaluate_multimodality(eval_wrapper, mm_motion_loaders, f, mm_num_times)
@@ -175,40 +254,47 @@ def evaluation(eval_wrapper, gt_loader, eval_motion_loaders, log_file, replicati
             print(f'!!! DONE !!!')
             print(f'!!! DONE !!!', file=f, flush=True)
 
-            for key, item in mat_score_dict.items():
-                if key not in all_metrics['Matching Score']:
-                    all_metrics['Matching Score'][key] = [item]
-                else:
-                    all_metrics['Matching Score'][key] += [item]
+            for key, item in mat_score_dict.items():  # G
+                if key not in all_metrics['Matching Score']:  # G
+                    all_metrics['Matching Score'][key] = [item]  # G
+                else:  # G
+                    all_metrics['Matching Score'][key] += [item]  # G
 
-            for key, item in R_precision_dict.items():
-                if key not in all_metrics['R_precision']:
-                    all_metrics['R_precision'][key] = [item]
-                else:
-                    all_metrics['R_precision'][key] += [item]
+            for key, item in R_precision_dict.items():  # G
+                if key not in all_metrics['R_precision']:  # G
+                    all_metrics['R_precision'][key] = [item]  # G
+                else:  # G
+                    all_metrics['R_precision'][key] += [item]  # G
 
-            for key, item in fid_score_dict.items():
-                if key not in all_metrics['FID']:
-                    all_metrics['FID'][key] = [item]
-                else:
-                    all_metrics['FID'][key] += [item]
+            for key, item in fid_score_dict.items():  # G
+                if key not in all_metrics['FID']:  # G
+                    all_metrics['FID'][key] = [item]  # G
+                else:  # G
+                    all_metrics['FID'][key] += [item]  # G
 
-            for key, item in div_score_dict.items():
-                if key not in all_metrics['Diversity']:
-                    all_metrics['Diversity'][key] = [item]
-                else:
-                    all_metrics['Diversity'][key] += [item]
-            if run_mm:
-                for key, item in mm_score_dict.items():
-                    if key not in all_metrics['MultiModality']:
-                        all_metrics['MultiModality'][key] = [item]
-                    else:
-                        all_metrics['MultiModality'][key] += [item]
+            for key, item in div_score_dict.items():  # G
+                if key not in all_metrics['Diversity']:  # G
+                    all_metrics['Diversity'][key] = [item]  # G
+                else:  # G
+                    all_metrics['Diversity'][key] += [item]  # G
+            if run_mm and 'multimodality' in metrics_to_run:  # G
+                for key, item in mm_score_dict.items():  # G
+                    if key not in all_metrics['MultiModality']:  # G
+                        all_metrics['MultiModality'][key] = [item]  # G
+                    else:  # G
+                        all_metrics['MultiModality'][key] += [item]  # G
+
+            progress_line = f'Progress: completed {replication + 1}/{replication_times} replications'  # G
+            print(progress_line)  # G
+            print(progress_line, file=f, flush=True)  # G
+            _save_progress(log_file, all_metrics, replication + 1, replication_times)  # G
 
 
         # print(all_metrics['Diversity'])
         mean_dict = {}
         for metric_name, metric_dict in all_metrics.items():
+            if len(metric_dict) == 0:  # G
+                continue  # G
             print('========== %s Summary ==========' % metric_name)
             print('========== %s Summary ==========' % metric_name, file=f, flush=True)
             for model_name, values in metric_dict.items():
@@ -235,6 +321,8 @@ def evaluation(eval_wrapper, gt_loader, eval_motion_loaders, log_file, replicati
                                                             iteration=1, group_name='Eval')
                 else:
                     eval_platform.report_scalar(name=k, value=v, iteration=1, group_name='Eval')
+
+        _save_progress(log_file, all_metrics, replication_times, replication_times, mean_dict=mean_dict)  # G
         
         return mean_dict
 
@@ -259,7 +347,17 @@ if __name__ == '__main__':
     eval_platform.report_args(args, name='Args')
 
     print(f'Eval mode [{args.eval_mode}]')
-    if args.eval_mode == 'debug':
+    metrics_to_run = {'matching', 'fid', 'diversity', 'multimodality'}  # G
+    if args.eval_mode == 'quick_debug':  # G
+        num_samples_limit = 10  # G
+        run_mm = False  # G
+        mm_num_samples = 0  # G
+        mm_num_repeats = 0  # G
+        mm_num_times = 0  # G
+        diversity_times = 10  # G
+        replication_times = 1  # G
+        metrics_to_run = {'matching'}  # G
+    elif args.eval_mode == 'debug':
         num_samples_limit = 1000  # None means no limit (eval over all dataset)
         run_mm = False
         mm_num_samples = 0
@@ -314,7 +412,7 @@ if __name__ == '__main__':
 
     eval_motion_loaders = {
         ################
-        ## HumanML3D Dataset##
+        ## humanml Dataset##
         ################
         'vald': lambda: get_mdm_loader(args,
             model=model, diffusion=diffusion, batch_size=args.batch_size,
@@ -326,5 +424,5 @@ if __name__ == '__main__':
 
     eval_wrapper = EvaluatorMDMWrapper(args.dataset, dist_util.dev())
     evaluation(eval_wrapper, gt_loader, eval_motion_loaders, log_file, replication_times, 
-               diversity_times, mm_num_times, run_mm=run_mm, eval_platform=eval_platform)
+               diversity_times, mm_num_times, run_mm=run_mm, eval_platform=eval_platform, metrics_to_run=metrics_to_run)  # G
     eval_platform.close()
